@@ -49,6 +49,7 @@ def smart_match(request: SmartMatchRequest):
     }
 
     for field_name, requirement in request.requirements.items():
+        effective_field_name = "community" if field_name == "location" else field_name
 
         if requirement.priority not in allowed_priorities:
             raise HTTPException(
@@ -278,11 +279,13 @@ def smart_match(request: SmartMatchRequest):
 
         best_price_per_sqft = None
         highest_price_per_sqft = None
+        
 
-    # ---------------------------------------------------------
+           # ---------------------------------------------------------
     # 8. Hard filtering
     #
     # Required requirements are NEVER silently relaxed.
+    # Customer-facing "location" maps to database "community".
     # ---------------------------------------------------------
 
     filtered_properties = []
@@ -293,14 +296,28 @@ def smart_match(request: SmartMatchRequest):
 
         for field_name, requirement in request.requirements.items():
 
+            # Customer-facing "location" maps to database "community"
+            effective_field_name = (
+                "community"
+                if field_name == "location"
+                else field_name
+            )
+
+            # Only required requirements are hard filters.
             if requirement.priority != "required":
                 continue
 
             requested_value = requirement.value
-            property_value = property_data.get(field_name)
 
-            # Required community
-            if field_name == "community":
+            property_value = property_data.get(
+                effective_field_name
+            )
+
+            # -------------------------------------------------
+            # Required community / location
+            # -------------------------------------------------
+
+            if effective_field_name == "community":
 
                 if normalize(property_value) != normalize(
                     requested_value
@@ -308,8 +325,11 @@ def smart_match(request: SmartMatchRequest):
                     passes_required = False
                     break
 
+            # -------------------------------------------------
             # Required property type
-            elif field_name == "property_type":
+            # -------------------------------------------------
+
+            elif effective_field_name == "property_type":
 
                 if normalize(property_value) != normalize(
                     requested_value
@@ -317,11 +337,19 @@ def smart_match(request: SmartMatchRequest):
                     passes_required = False
                     break
 
+            # -------------------------------------------------
             # Required bedrooms
-            elif field_name == "bedrooms":
+            # -------------------------------------------------
 
-                property_bedrooms = number(property_value)
-                requested_bedrooms = number(requested_value)
+            elif effective_field_name == "bedrooms":
+
+                property_bedrooms = number(
+                    property_value
+                )
+
+                requested_bedrooms = number(
+                    requested_value
+                )
 
                 if (
                     property_bedrooms is None
@@ -331,11 +359,19 @@ def smart_match(request: SmartMatchRequest):
                     passes_required = False
                     break
 
+            # -------------------------------------------------
             # Required budget
-            elif field_name == "budget":
+            # -------------------------------------------------
 
-                property_price = number(property_value)
-                requested_budget = number(requested_value)
+            elif effective_field_name == "budget":
+
+                property_price = number(
+                    property_value
+                )
+
+                requested_budget = number(
+                    requested_value
+                )
 
                 if (
                     property_price is None
@@ -345,7 +381,10 @@ def smart_match(request: SmartMatchRequest):
                     passes_required = False
                     break
 
+            # -------------------------------------------------
             # Generic required exact match
+            # -------------------------------------------------
+
             else:
 
                 if normalize(property_value) != normalize(
@@ -354,8 +393,13 @@ def smart_match(request: SmartMatchRequest):
                     passes_required = False
                     break
 
+        # -----------------------------------------------------
+        # Keep property if ALL required requirements passed
+        # -----------------------------------------------------
+
         if passes_required:
             filtered_properties.append(property_data)
+
 
     # ---------------------------------------------------------
     # 9. Score candidates
@@ -372,16 +416,23 @@ def smart_match(request: SmartMatchRequest):
 
         for field_name, requirement in request.requirements.items():
 
+            effective_field_name = (
+                "community"
+                if field_name == "location"
+                else field_name
+            )
+
             requested_value = requirement.value
             priority = requirement.priority
 
             field_score = 0
 
+
             # -------------------------------------------------
             # COMMUNITY
             # -------------------------------------------------
 
-            if field_name == "community":
+            if effective_field_name == "community":
 
                 property_value = property_data.get(
                     "community"
@@ -407,11 +458,12 @@ def smart_match(request: SmartMatchRequest):
                             "Different community alternative"
                         )
 
+
             # -------------------------------------------------
             # PROPERTY TYPE
             # -------------------------------------------------
 
-            elif field_name == "property_type":
+            elif effective_field_name == "property_type":
 
                 property_value = property_data.get(
                     "property_type"
@@ -437,11 +489,12 @@ def smart_match(request: SmartMatchRequest):
                             "Different property type alternative"
                         )
 
+
             # -------------------------------------------------
             # BEDROOMS
             # -------------------------------------------------
 
-            elif field_name == "bedrooms":
+            elif effective_field_name == "bedrooms":
 
                 property_bedrooms = number(
                     property_data.get("bedrooms")
@@ -487,8 +540,6 @@ def smart_match(request: SmartMatchRequest):
 
                         elif purpose == "family":
 
-                            # Family customers generally need
-                            # the requested bedroom count.
                             field_score = 35
 
                         else:
@@ -543,11 +594,12 @@ def smart_match(request: SmartMatchRequest):
                             "Bedroom count differs significantly"
                         )
 
+
             # -------------------------------------------------
             # BUDGET
             # -------------------------------------------------
 
-            elif field_name == "budget":
+            elif effective_field_name == "budget":
 
                 property_price = number(
                     property_data.get("price")
@@ -608,11 +660,12 @@ def smart_match(request: SmartMatchRequest):
 
                             field_score = 0
 
+
             # -------------------------------------------------
             # PRICE PER SQFT
             # -------------------------------------------------
 
-            elif field_name == "price_per_sqft":
+            elif effective_field_name == "price_per_sqft":
 
                 property_price_per_sqft = number(
                     property_data.get(
@@ -660,6 +713,7 @@ def smart_match(request: SmartMatchRequest):
                             "Reasonable price per square foot"
                         )
 
+
             # -------------------------------------------------
             # OTHER FIELDS
             # -------------------------------------------------
@@ -667,7 +721,7 @@ def smart_match(request: SmartMatchRequest):
             else:
 
                 property_value = property_data.get(
-                    field_name
+                    effective_field_name
                 )
 
                 if normalize(property_value) == normalize(
@@ -680,12 +734,13 @@ def smart_match(request: SmartMatchRequest):
 
                     field_score = 0
 
+
             # -------------------------------------------------
             # Priority weighting
             # -------------------------------------------------
 
             base_weight = weights.get(
-                field_name,
+                effective_field_name,
                 10
             )
 
@@ -706,12 +761,17 @@ def smart_match(request: SmartMatchRequest):
                 * priority_multiplier
             )
 
+            # -------------------------------------------------
+            # Add field score to total score
+            # -------------------------------------------------
+
             total_score += (
                 field_score
                 * final_weight
             )
 
             total_weight += final_weight
+
 
         # -----------------------------------------------------
         # Add investment-specific price-per-sqft score
@@ -748,17 +808,23 @@ def smart_match(request: SmartMatchRequest):
                         - best_price_per_sqft
                     )
 
-                    relative_position = (
-                        property_price_per_sqft
-                        - best_price_per_sqft
-                    ) / price_range
+                    if price_range > 0:
 
-                    investment_score = max(
-                        0,
-                        100 - (
-                            relative_position * 100
+                        relative_position = (
+                            property_price_per_sqft
+                            - best_price_per_sqft
+                        ) / price_range
+
+                        investment_score = max(
+                            0,
+                            100 - (
+                                relative_position * 100
+                            )
                         )
-                    )
+
+                    else:
+
+                        investment_score = 100
 
                 total_score += (
                     investment_score
@@ -779,6 +845,7 @@ def smart_match(request: SmartMatchRequest):
                         "Reasonable investment price per square foot"
                     )
 
+
         # -----------------------------------------------------
         # Normalize score to 0–100
         # -----------------------------------------------------
@@ -792,6 +859,7 @@ def smart_match(request: SmartMatchRequest):
         else:
 
             match_score = 0
+
 
         # -----------------------------------------------------
         # Match level
@@ -813,6 +881,7 @@ def smart_match(request: SmartMatchRequest):
 
             match_level = "weak"
 
+
         # -----------------------------------------------------
         # Investment context
         # -----------------------------------------------------
@@ -830,6 +899,7 @@ def smart_match(request: SmartMatchRequest):
                 match_reasons.append(
                     "Price-per-square-foot considered for investment comparison"
                 )
+
 
         # -----------------------------------------------------
         # Remove duplicate reasons
@@ -849,6 +919,7 @@ def smart_match(request: SmartMatchRequest):
             property_data
         )
 
+
     # ---------------------------------------------------------
     # 10. Sort by highest score
     # ---------------------------------------------------------
@@ -863,6 +934,7 @@ def smart_match(request: SmartMatchRequest):
         reverse=True
     )
 
+
     # ---------------------------------------------------------
     # 11. Quality threshold
     #
@@ -875,11 +947,13 @@ def smart_match(request: SmartMatchRequest):
         if property_data["match_score"] >= 55
     ]
 
+
     # ---------------------------------------------------------
     # 12. Return top 3
     # ---------------------------------------------------------
 
     top_matches = strong_matches[:3]
+
 
     # ---------------------------------------------------------
     # 13. No strong match
@@ -896,7 +970,6 @@ def smart_match(request: SmartMatchRequest):
                 "the current requirements."
             )
         }
-
     # ---------------------------------------------------------
     # 14. Final response
     # ---------------------------------------------------------
