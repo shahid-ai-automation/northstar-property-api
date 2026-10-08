@@ -1408,6 +1408,22 @@ def book_viewing(
     )
 
     end_time = start_time + timedelta(minutes=30)
+    
+    # Check whether the requested time is already occupied
+    existing_events = service.events().list(
+        calendarId="primary",
+        timeMin=start_time.isoformat() + "+05:00",
+        timeMax=end_time.isoformat() + "+05:00",
+        singleEvents=True,
+        orderBy="startTime"
+    ).execute()
+
+    if existing_events.get("items"):
+        raise HTTPException(
+            status_code=409,
+            detail="This viewing time is already occupied. Please choose another time."
+        )
+
 
     start_time_iso = start_time.isoformat() + "+05:00"
     end_time_iso = end_time.isoformat() + "+05:00"
