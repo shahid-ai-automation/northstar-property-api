@@ -1452,15 +1452,26 @@ def book_viewing(
         body=event
     ).execute()
 
+    
     # 5. Notify assigned agent through company email
-    notification = notify_agent(
-        property_id=property_id,
-        agent_id=agent_id,
-        customer_name=customer_name,
-        customer_phone=customer_phone,
-        requested_date=requested_date,
-        requested_time=requested_time
-    )
+    notification_sent = False
+    notification_message_id = None
+
+    try:
+        notification = notify_agent(
+            property_id=property_id,
+            agent_id=agent_id,
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+            requested_date=requested_date,
+            requested_time=requested_time
+        )
+
+        notification_sent = notification["notification_sent"]
+        notification_message_id = notification.get("message_id")
+
+    except Exception as e:
+        print(f"Agent notification failed: {e}")
 
     # 6. Return booking + notification result
     return {
@@ -1472,10 +1483,17 @@ def book_viewing(
         "requested_date": requested_date,
         "requested_time": requested_time,
         "event_id": created_event.get("id"),
-        "notification_sent": notification["notification_sent"],
-        "notification_message_id": notification["message_id"],
-        "message": "Property viewing booked successfully and agent notification sent."
+        "notification_sent": notification_sent,
+        "notification_message_id": notification_message_id,
+        "message": (
+            "Viewing booked successfully and agent notification sent."
+            if notification_sent
+            else "Viewing booked successfully, but agent notification failed."
+        )
     }
+
+
+
 
 @app.get("/gmail-test")
 def gmail_test():
