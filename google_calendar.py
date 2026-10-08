@@ -25,9 +25,19 @@ def create_google_flow():
     return flow
 
 
+
 def get_gmail_service():
-    credentials = Credentials.from_authorized_user_file(
-        "token.json",
+    token_json = os.getenv("GOOGLE_TOKEN_JSON")
+
+    if not token_json:
+        raise RuntimeError(
+            "Google credentials are not configured."
+        )
+
+    import json
+
+    credentials = Credentials.from_authorized_user_info(
+        json.loads(token_json),
         SCOPES
     )
 
