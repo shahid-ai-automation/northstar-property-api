@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel
 
 import os
+import json
 import psycopg
 import base64
 from email.mime.text import MIMEText
@@ -1273,9 +1274,17 @@ def check_availability(
 
     agent_id = row[0]
 
-    # 2. Load Google Calendar credentials
-    credentials = Credentials.from_authorized_user_file(
-        "token.json",
+       # 2. Load Google Calendar credentials
+    token_json = os.getenv("GOOGLE_TOKEN_JSON")
+
+    if not token_json:
+        raise HTTPException(
+            status_code=500,
+            detail="Google Calendar credentials are not configured."
+        )
+
+    credentials = Credentials.from_authorized_user_info(
+        json.loads(token_json),
         ["https://www.googleapis.com/auth/calendar"]
     )
 
