@@ -1341,6 +1341,7 @@ def check_availability(
         "message": "The requested viewing time is available."
     }
 
+
 @app.post("/availability/book")
 def book_viewing(
     property_id: str,
@@ -1377,9 +1378,19 @@ def book_viewing(
 
     agent_id = row[0]
 
+   
+
     # 2. Load Google Calendar credentials
-    credentials = Credentials.from_authorized_user_file(
-        "token.json",
+    token_json = os.getenv("GOOGLE_TOKEN_JSON")
+
+    if not token_json:
+        raise HTTPException(
+            status_code=500,
+            detail="Google Calendar credentials are not configured."
+        )
+
+    credentials = Credentials.from_authorized_user_info(
+        json.loads(token_json),
         ["https://www.googleapis.com/auth/calendar"]
     )
 
@@ -1388,6 +1399,7 @@ def book_viewing(
         "v3",
         credentials=credentials
     )
+
 
     # 3. Build viewing time
     start_time = datetime.strptime(
