@@ -366,7 +366,7 @@ def smart_match(request: SmartMatchRequest):
             elif effective_field_name == "budget":
 
                 property_price = number(
-                    property_value
+                    property_data.get("price")
                 )
 
                 requested_budget = number(
@@ -393,12 +393,15 @@ def smart_match(request: SmartMatchRequest):
                     passes_required = False
                     break
 
+
+       
         # -----------------------------------------------------
         # Keep property if ALL required requirements passed
         # -----------------------------------------------------
 
         if passes_required:
             filtered_properties.append(property_data)
+            
 
 
     # ---------------------------------------------------------
