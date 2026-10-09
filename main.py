@@ -1239,32 +1239,46 @@ def calendar_test():
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 
-
-@app.get("/availability/check")
-def check_availability(
-    property_id: str,
-    requested_date: str,
+class CheckAvailabilityRequest(BaseModel):
+    property_id: str
+    requested_date: str
     requested_time: str
-):
-    # 1. Get assigned agent for this property
+
+@app.post("/availability/check")
+def check_availability(request: CheckAvailabilityRequest):
+    # 1. Read parameters from the JSON request body
+    property_id = request.property_id
+    requested_date = request.requested_date
+    requested_time = request.requested_time
+
+    # 2. Get the assigned agent for this property
     database_url = os.getenv("DATABASE_URL")
 
+    if not database_url:
+        raise HTTPException(
+            status_code=500,
+            detail="Database connection is not configured."
+        )
+
     conn = psycopg.connect(database_url)
-    cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT agent_id
-        FROM public.properties
-        WHERE property_id = %s
-        """,
-        (property_id,)
-    )
+    try:
+        cur = conn.cursor()
 
-    row = cur.fetchone()
+        cur.execute(
+            """
+            SELECT agent_id
+            FROM public.properties
+            WHERE property_id = %s
+            """,
+            (property_id,)
+        )
 
-    cur.close()
-    conn.close()
+        row = cur.fetchone()
+        cur.close()
+
+    finally:
+        conn.close()
 
     if not row:
         raise HTTPException(
@@ -1274,7 +1288,7 @@ def check_availability(
 
     agent_id = row[0]
 
-       # 2. Load Google Calendar credentials
+    # 3. Load Google Calendar credentials
     token_json = os.getenv("GOOGLE_TOKEN_JSON")
 
     if not token_json:
@@ -1294,34 +1308,40 @@ def check_availability(
         credentials=credentials
     )
 
-    # 3. Build requested viewing time
-    start_time = datetime.strptime(
-        f"{requested_date} {requested_time}",
-        "%Y-%m-%d %H:%M"
-    )
+    # 4. Validate and build the requested viewing time
+    try:
+        start_time = datetime.strptime(
+            f"{requested_date} {requested_time}",
+            "%Y-%m-%d %H:%M"
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date or time. Use YYYY-MM-DD and HH:MM format."
+        )
 
     end_time = start_time + timedelta(minutes=30)
 
-    # Pakistan timezone
-    start_time = start_time.isoformat() + "+05:00"
-    end_time = end_time.isoformat() + "+05:00"
+    # Pakistan timezone (UTC+05:00)
+    start_time_iso = start_time.isoformat() + "+05:00"
+    end_time_iso = end_time.isoformat() + "+05:00"
 
-    # 4. Check Google Calendar
+    # 5. Check Google Calendar for conflicts
     freebusy_result = service.freebusy().query(
         body={
-            "timeMin": start_time,
-            "timeMax": end_time,
+            "timeMin": start_time_iso,
+            "timeMax": end_time_iso,
             "items": [
-                {
-                    "id": "primary"
-                }
+                {"id": "primary"}
             ]
         }
     ).execute()
 
-    calendar_busy = freebusy_result["calendars"]["primary"]["busy"]
+    calendar_busy = (
+        freebusy_result["calendars"]["primary"]["busy"]
+    )
 
-    # 5. Return availability
+    # 6. Return availability result
     if calendar_busy:
         return {
             "available": False,
