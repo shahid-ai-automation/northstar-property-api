@@ -1486,9 +1486,7 @@ def book_viewing(request: BookViewingRequest):
     created_event = service.events().insert(
         calendarId="primary",
         body=event
-    ).execute()
-
-
+    ).execute()  
     # 5. Notify assigned agent through company email
     notification_sent = False
     notification_message_id = None
@@ -1506,9 +1504,19 @@ def book_viewing(request: BookViewingRequest):
         notification_sent = notification["notification_sent"]
         notification_message_id = notification.get("message_id")
 
-    except Exception as e:
-        print(f"Agent notification failed: {e}")
+        print(
+            f"BOOKING_NOTIFICATION_RESULT: "
+            f"property_id={property_id}, "
+            f"notification_sent={notification_sent}, "
+            f"message_id_present={bool(notification_message_id)}"
+        )
 
+    except Exception as e:
+        print(
+            f"BOOKING_NOTIFICATION_FAILED: "
+            f"property_id={property_id}, "
+            f"error_type={type(e).__name__}"
+        )
     # 6. Return booking + notification result
     return {
         "booked": True,
