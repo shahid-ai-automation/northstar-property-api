@@ -280,7 +280,7 @@ def smart_match(request: SmartMatchRequest):
 
         best_price_per_sqft = None
         highest_price_per_sqft = None
-        
+
 
            # ---------------------------------------------------------
     # 8. Hard filtering
@@ -395,14 +395,14 @@ def smart_match(request: SmartMatchRequest):
                     break
 
 
-       
+
         # -----------------------------------------------------
         # Keep property if ALL required requirements passed
         # -----------------------------------------------------
 
         if passes_required:
             filtered_properties.append(property_data)
-            
+
 
 
     # ---------------------------------------------------------
@@ -1199,7 +1199,7 @@ def oauth2callback(request: Request):
             "details": str(e)
         }
 
-        
+
 @app.get("/calendar-test")
 def calendar_test():
     credentials = Credentials.from_authorized_user_file(
@@ -1361,15 +1361,31 @@ def check_availability(request: CheckAvailabilityRequest):
         "message": "The requested viewing time is available."
     }
 
+class BookViewingRequest(BaseModel):
+    property_id: str
+    requested_date: str
+    requested_time: str
+    customer_name: str
+    customer_phone: str
+
+
+class NotifyAgentRequest(BaseModel):
+    property_id: str
+    agent_id: str
+    customer_name: str
+    customer_phone: str
+    requested_date: str
+    requested_time: str
+
 
 @app.post("/availability/book")
-def book_viewing(
-    property_id: str,
-    requested_date: str,
-    requested_time: str,
-    customer_name: str,
-    customer_phone: str
-):
+def book_viewing(request: BookViewingRequest):
+    property_id = request.property_id
+    requested_date = request.requested_date
+    requested_time = request.requested_time
+    customer_name = request.customer_name
+    customer_phone = request.customer_phone
+
     # 1. Get assigned agent for this property
     database_url = os.getenv("DATABASE_URL")
 
@@ -1398,7 +1414,7 @@ def book_viewing(
 
     agent_id = row[0]
 
-   
+
 
     # 2. Load Google Calendar credentials
     token_json = os.getenv("GOOGLE_TOKEN_JSON")
@@ -1428,7 +1444,7 @@ def book_viewing(
     )
 
     end_time = start_time + timedelta(minutes=30)
-    
+
     # Check whether the requested time is already occupied
     existing_events = service.events().list(
         calendarId="primary",
@@ -1472,13 +1488,13 @@ def book_viewing(
         body=event
     ).execute()
 
-    
+
     # 5. Notify assigned agent through company email
     notification_sent = False
     notification_message_id = None
 
     try:
-        notification = notify_agent(
+        notification = send_agent_notification(
             property_id=property_id,
             agent_id=agent_id,
             customer_name=customer_name,
@@ -1539,8 +1555,8 @@ def gmail_test():
         "email_sent": True,
         "message_id": result.get("id")
     }
-@app.post("/notify-agent")
-def notify_agent(
+
+def send_agent_notification(
     property_id: str,
     agent_id: str,
     customer_name: str,
@@ -1548,6 +1564,56 @@ def notify_agent(
     requested_date: str,
     requested_time: str
 ):
+    service = get_gmail_service()
+
+    message_body = f"""
+New Property Viewing Booking
+
+Property ID: {property_id}
+Assigned Agent ID: {agent_id}
+
+Customer Name: {customer_name}
+Customer Phone: {customer_phone}
+
+Viewing Date: {requested_date}
+Viewing Time: {requested_time}
+"""
+
+    message = MIMEText(message_body)
+
+    message["to"] = "abdullah3742new@gmail.com"
+    message["subject"] = f"New Property Viewing - {property_id}"
+
+    raw_message = base64.urlsafe_b64encode(
+        message.as_bytes()
+    ).decode()
+
+    result = service.users().messages().send(
+        userId="me",
+        body={"raw": raw_message}
+    ).execute()
+
+    return {
+        "notification_sent": True,
+        "message_id": result.get("id"),
+        "property_id": property_id,
+        "agent_id": agent_id
+    }
+
+
+
+@app.post("/notify-agent")
+def notify_agent(request: NotifyAgentRequest):
+    return send_agent_notification(
+        property_id=request.property_id,
+        agent_id=request.agent_id,
+        customer_name=request.customer_name,
+        customer_phone=request.customer_phone,
+        requested_date=request.requested_date,
+        requested_time=request.requested_time
+    )
+
+
     service = get_gmail_service()
 
     message_body = f"""
