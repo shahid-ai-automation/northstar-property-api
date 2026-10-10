@@ -1367,7 +1367,7 @@ class BookViewingRequest(BaseModel):
     requested_time: str
     customer_name: str
     customer_phone: str
-
+    purpose: str
 
 class NotifyAgentRequest(BaseModel):
     property_id: str
@@ -1376,7 +1376,7 @@ class NotifyAgentRequest(BaseModel):
     customer_phone: str
     requested_date: str
     requested_time: str
-
+    purpose: str
 
 @app.post("/availability/book")
 def book_viewing(request: BookViewingRequest):
@@ -1385,6 +1385,7 @@ def book_viewing(request: BookViewingRequest):
     requested_time = request.requested_time
     customer_name = request.customer_name
     customer_phone = request.customer_phone
+    purpose = request.purpose
 
     # 1. Get assigned agent for this property
     database_url = os.getenv("DATABASE_URL")
@@ -1445,7 +1446,8 @@ def book_viewing(request: BookViewingRequest):
 
     end_time = start_time + timedelta(minutes=30)
 
-    # Check whether the requested time is already occupied
+    
+    # Check overlapping events for the assigned agent only
     existing_events = service.events().list(
         calendarId="primary",
         timeMin=start_time.isoformat() + "+05:00",
@@ -1454,20 +1456,41 @@ def book_viewing(request: BookViewingRequest):
         orderBy="startTime"
     ).execute()
 
-    if existing_events.get("items"):
+    agent_conflict = False
+
+    for existing_event in existing_events.get("items", []):
+        description = existing_event.get("description", "")
+        print("DEBUG DESCRIPTION:", repr(description))
+
+        # Read the assigned agent ID from the existing event
+        event_agent_id = None
+
+        for line in description.splitlines():
+            if line.startswith("Assigned Agent:"):
+                event_agent_id = line.split(":", 1)[1].strip()
+                break
+
+        # Block only if the same agent has an overlapping event
+        if event_agent_id == agent_id:
+            agent_conflict = True
+            break
+
+    if agent_conflict:
         raise HTTPException(
             status_code=409,
-            detail="This viewing time is already occupied. Please choose another time."
+            detail=(
+                "This agent already has a viewing during this time. "
+                "Please choose another time."
+            )
         )
-
-
     start_time_iso = start_time.isoformat() + "+05:00"
     end_time_iso = end_time.isoformat() + "+05:00"
-
+   
     # 4. Create Google Calendar event
     event = {
-        "summary": f"Property Viewing - {property_id}",
+        "summary": f"Property Viewing - {purpose} - {property_id}",
         "description": (
+            f"Purpose: {purpose}\n"
             f"Customer: {customer_name}\n"
             f"Phone: {customer_phone}\n"
             f"Property ID: {property_id}\n"
@@ -1491,14 +1514,15 @@ def book_viewing(request: BookViewingRequest):
     notification_sent = False
     notification_message_id = None
 
-    try:
+    try:       
         notification = send_agent_notification(
             property_id=property_id,
             agent_id=agent_id,
             customer_name=customer_name,
             customer_phone=customer_phone,
             requested_date=requested_date,
-            requested_time=requested_time
+            requested_time=requested_time,
+            purpose=purpose
         )
 
         notification_sent = notification["notification_sent"]
@@ -1536,9 +1560,6 @@ def book_viewing(request: BookViewingRequest):
         )
     }
 
-
-
-
 @app.get("/gmail-test")
 def gmail_test():
     service = get_gmail_service()
@@ -1570,13 +1591,15 @@ def send_agent_notification(
     customer_name: str,
     customer_phone: str,
     requested_date: str,
-    requested_time: str
+    requested_time: str,
+    purpose: str
 ):
     service = get_gmail_service()
 
     message_body = f"""
 New Property Viewing Booking
 
+Purpose: {purpose}
 Property ID: {property_id}
 Assigned Agent ID: {agent_id}
 
@@ -1590,7 +1613,7 @@ Viewing Time: {requested_time}
     message = MIMEText(message_body)
 
     message["to"] = "abdullah3742new@gmail.com"
-    message["subject"] = f"New Property Viewing - {property_id}"
+    message["subject"] = f"New Property Viewing - {purpose} - {property_id}"
 
     raw_message = base64.urlsafe_b64encode(
         message.as_bytes()
@@ -1608,8 +1631,6 @@ Viewing Time: {requested_time}
         "agent_id": agent_id
     }
 
-
-
 @app.post("/notify-agent")
 def notify_agent(request: NotifyAgentRequest):
     return send_agent_notification(
@@ -1618,9 +1639,9 @@ def notify_agent(request: NotifyAgentRequest):
         customer_name=request.customer_name,
         customer_phone=request.customer_phone,
         requested_date=request.requested_date,
-        requested_time=request.requested_time
+        requested_time=request.requested_time,
+        purpose=request.purpose
     )
-
 
     service = get_gmail_service()
 
