@@ -1326,30 +1326,51 @@ def check_availability(request: CheckAvailabilityRequest):
     start_time_iso = start_time.isoformat() + "+05:00"
     end_time_iso = end_time.isoformat() + "+05:00"
 
+    
     # 5. Check Google Calendar for conflicts
-    freebusy_result = service.freebusy().query(
-        body={
-            "timeMin": start_time_iso,
-            "timeMax": end_time_iso,
-            "items": [
-                {"id": "primary"}
-            ]
-        }
+    events_result = service.events().list(
+        calendarId="primary",
+        timeMin=start_time_iso,
+        timeMax=end_time_iso,
+        singleEvents=True,
+        orderBy="startTime"
     ).execute()
 
-    calendar_busy = (
-        freebusy_result["calendars"]["primary"]["busy"]
-    )
+    calendar_events = events_result.get("items", [])
+    agent_is_busy = False
+
+    for event in calendar_events:
+        # Ignore cancelled or explicitly non-blocking events
+        if event.get("status") == "cancelled":
+            continue
+
+        if event.get("transparency") == "transparent":
+            continue
+
+        description = event.get("description", "")
+
+        # Read the agent assigned to this calendar event
+        assigned_agent = None
+
+        for line in description.splitlines():
+            if line.strip().startswith("Assigned Agent:"):
+                assigned_agent = line.split(":", 1)[1].strip()
+                break
+
+        # Only block the slot if this same agent is already booked
+        if assigned_agent == agent_id:
+            agent_is_busy = True
+            break
 
     # 6. Return availability result
-    if calendar_busy:
+    if agent_is_busy:
         return {
             "available": False,
             "property_id": property_id,
             "agent_id": agent_id,
             "requested_date": requested_date,
             "requested_time": requested_time,
-            "message": "The requested viewing time is busy."
+            "message": "The assigned agent is busy at the requested time."
         }
 
     return {
@@ -1358,7 +1379,7 @@ def check_availability(request: CheckAvailabilityRequest):
         "agent_id": agent_id,
         "requested_date": requested_date,
         "requested_time": requested_time,
-        "message": "The requested viewing time is available."
+        "message": "The assigned agent is available at the requested time."
     }
 
 class BookViewingRequest(BaseModel):
